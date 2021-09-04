@@ -10,6 +10,16 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+relu = F.relu
+relu6 = F.relu6
+relu6_flg = False
+
+def relu_act(X):
+    if relu6_flg:
+        Y = F.relu6(X)
+    else:
+        Y = F.relu(X)
+    return Y
 
 class BasicBlock(nn.Module):
     expansion = 1
@@ -32,10 +42,11 @@ class BasicBlock(nn.Module):
             )
 
     def forward(self, x):
-        out = F.relu(self.bn1(self.conv1(x)))
+        #out = F.relu(self.bn1(self.conv1(x)))
+        out = relu_act(self.bn1(self.conv1(x)))
         out = self.bn2(self.conv2(out))
         out += self.shortcut(x)
-        out = F.relu(out)
+        out = relu_act(out)
         return out
 
 
@@ -62,11 +73,11 @@ class Bottleneck(nn.Module):
             )
 
     def forward(self, x):
-        out = F.relu(self.bn1(self.conv1(x)))
-        out = F.relu(self.bn2(self.conv2(out)))
+        out = relu_act(self.bn1(self.conv1(x)))
+        out = relu_act(self.bn2(self.conv2(out)))
         out = self.bn3(self.conv3(out))
         out += self.shortcut(x)
-        out = F.relu(out)
+        out = relu_act(out)
         return out
 
 
@@ -93,7 +104,7 @@ class ResNet(nn.Module):
         return nn.Sequential(*layers)
 
     def forward(self, x):
-        out = F.relu(self.bn1(self.conv1(x)))
+        out = relu_act(self.bn1(self.conv1(x)))
         out = self.layer1(out)
         out = self.layer2(out)
         out = self.layer3(out)
