@@ -14,6 +14,8 @@ import os
 import argparse
 
 from models import *
+import onnx
+import numpy as np
 from utils import progress_bar
 #from sc_resnet import ResNet50
 #from sc_resnet import ResNet50
@@ -25,10 +27,25 @@ parser.add_argument('--resume', '-r', action='store_true',
                     help='resume from checkpoint')
 parser.add_argument('--relu6', type=int, help='relu6 option')
 parser.add_argument('--export_onnx', type=str, default='', help='model to export to onnx')
+parser.add_argument('--nepochs', type=int, default=200, help='Number of training epochs')
+parser.add_argument('--sc_resnet', type=int, default=0, help='Use sc resnet version')
 args = parser.parse_args()
 
+cpu_device = 'cpu'
+def quantize_static(myModel):
+    # set quantization config for server (x86)
+    myModel.qconfig = torch.quantization.get_default_config('fbgemm')
+
+    # insert observers
+    torch.quantization.prepare(myModel, inplace=True)
+    # Calibrate the model and collect statistics
+
+    # convert to quantized version
+    torch.quantization.convert(myModel, inplace=True)
+    return myModel
 
 def quantize(model_fp32):
+    model_fp32.to(cpu_device)
     quant_set = {torch.nn.Linear, torch.nn.Conv2d, torch.nn.BatchNorm2d}
     print(f'sizeof fp32: {sys.getsizeof((model_fp32))}')
     model_int8 = torch.quantization.quantize_dynamic(
@@ -44,16 +61,17 @@ def quantize(model_fp32):
 #model_fp32 = ResNet18()
 #quantize(model_fp32)
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
 best_acc = 0  # best test accuracy
 start_epoch = 0  # start from epoch 0 or last checkpoint epoch
 
 # Function to export to onnx
-def export_onnx(onnx_fname):
+def export_onnx(cp_name):
     net = ResNet18()
-    checkpoint = torch.load(args.export_onnx)
+    checkpoint = torch.load(cp_name)
     net_item = checkpoint['net']
     net.load_state_dict(net_item)
-    onnx_name = args.export_onnx + '.onnx'
+    onnx_name = cp_name + '.onnx'
     # Input to the model
     batch_size = 32
     x = torch.randn(batch_size, 3, 32, 32, requires_grad=True, dtype=torch.float32)
@@ -71,7 +89,8 @@ def export_onnx(onnx_fname):
                       dynamic_axes={'input': {0: 'batch_size'},  # variable length axes
                                     'output': {0: 'batch_size'}})
     print(f'onnx model name:{onnx_name}')
-    sys.exit(1)
+    return onnx_name
+    #sys.exit(1)
 
 if args.export_onnx != '' and os.path.isfile(args.export_onnx):
     net = ResNet18()
@@ -98,20 +117,20 @@ if args.export_onnx != '' and os.path.isfile(args.export_onnx):
     print(f'onnx model name:{onnx_name}')
     sys.exit(1)
 
-def compute_accuracy(net):
+def compute_accuracy(net, to_dev_flg=True):
     global best_acc
     net.eval()
+    if to_dev_flg:
+        net.to(device)
     test_loss = 0
     correct = 0
     total = 0
     L = len(testloader)
     with torch.no_grad():
         for batch_idx, (inputs, targets) in enumerate(testloader):
-            inputs, targets = inputs.to(device), targets.to(device)
+            if to_dev_flg:
+                inputs, targets = inputs.to(device), targets.to(device)
             outputs = net(inputs)
-            loss = criterion(outputs, targets)
-
-            test_loss += loss.item()
             _, predicted = outputs.max(1)
             total += targets.size(0)
             correct += predicted.eq(targets).sum().item()
@@ -172,8 +191,10 @@ class Logger:
 print('==> Building model..')
 # net = VGG('VGG19')
 resnet.relu6_flg = True if args.relu6 else False
-#net = ResNet18()
-net = sc_resnet.ResNet50()
+if args.sc_resnet:
+    net = sc_resnet.ResNet50()
+else:
+    net = ResNet18()
 # net = PreActResNet18()
 # net = GoogLeNet()
 # net = DenseNet121()
@@ -207,6 +228,17 @@ optimizer = optim.SGD(net.parameters(), lr=args.lr,
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=200)
 
 logger_file = 'C:/Users/shimon.cohen/PycharmProjects/pytorch-cifar/logdir/log_relu.txt'
+checkpoint_name = './checkpoint/ckpt_relu.pth'
+if args.relu6:
+    logger_file = 'C:/Users/shimon.cohen/PycharmProjects/pytorch-cifar/logdir/log_relu6.txt'
+    checkpoint_name ='./checkpoint/ckpt_relu6.pth'
+if args.sc_resnet:
+    logger_file = 'C:/Users/shimon.cohen/PycharmProjects/pytorch-cifar/logdir/sc_log_relu.txt'
+    checkpoint_name = './checkpoint/sc_ckpt_relu.pth'
+    optimizer = optim.Adam(lr=1e-5, params=net.parameters())
+    print('sc_resnet')
+
+
 lobj = Logger(logger_file)
 # Training
 def train(epoch):
@@ -267,14 +299,36 @@ def test(epoch):
         }
         if not os.path.isdir('checkpoint'):
             os.mkdir('checkpoint')
-        torch.save(state, './checkpoint/ckpt.pth')
+        torch.save(state, checkpoint_name)
         best_acc = acc
 
 clname = str(net.__class__)
 lobj.writeline(clname)
 print(f'net type: {clname}')
-for epoch in range(start_epoch, start_epoch+200):
+end_epoch = args.nepochs
+for epoch in range(start_epoch, end_epoch):
     train(epoch)
     test(epoch)
     lobj.newl()
     scheduler.step()
+
+# Load from checkpoint
+
+
+acc = compute_accuracy(net)
+acc_str = f'onnx model accuracy: {acc} ,modelsize: {sys.getsizeof(net)}'
+lobj.writeline(acc_str)
+net8i = quantize(net)
+#net8i = quantize_static(net)
+acc = compute_accuracy(net8i, to_dev_flg=False)
+acc_str = f'onnx quantized model accuracy: {acc} modelsize: {sys.getsizeof(net8i)}'
+lobj.writeline(acc_str)
+
+onnx_name = export_onnx(checkpoint_name)
+net = onnx.load(onnx_name)
+
+#outputs = net.run(np.random.randn(10, 3, 32, 32).astype(np.float32))
+# To run networks with more than one input, pass a tuple
+# rather than a single numpy ndarray.
+#print(outputs[0])
+

@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+# run command: python main.py --relu6=0 --export_onnx="C:\Users\shimon.cohen\PycharmProjects\pytorch-cifar\checkpoint\ckpt.pth-" --nepochs=300 --sc_resnet=1
+
 class BasicBlock(nn.Module):
     def __init__(self, in_chans=None, out_chans=None, stride=1):
         super(BasicBlock,self).__init__()
@@ -38,8 +40,9 @@ class Layer(nn.Module):
         return X
 
 class ResNet50(nn.Module):
-    def __init__(self, xsize=32, ysize=32, nfliters=64, nhid=512, ncls=10, softmask_flg=True):
-        super(ResNet50, self).__init__()
+    defualt_nhids = 512
+    def __init__(self, xsize=32, ysize=32defualt_nhids, nfliters=64, nhid=defualt_nhids, ncls=10, softmask_flg=False, nblocks=5):
+        super(ResNet50, self)._defualt_nhids_init__()
         self.conv1 = nn.Conv2d(3, nfliters, kernel_size=3,
                                stride=1, padding=1, bias=False)
 
@@ -52,7 +55,7 @@ class ResNet50(nn.Module):
             in_chans = out_chans
             nfliters *= 2
             out_chans = nfliters
-            mod.append(Layer(in_chans=in_chans,out_chans=out_chans))
+            mod.append(Layer(in_chans=in_chans,out_chans=out_chans, nblocks=nblocks))
             xsize /= 2
             ysize /= 2
         nfeatures = int(out_chans*xsize * ysize)
@@ -60,6 +63,7 @@ class ResNet50(nn.Module):
         self.lin1 = nn.Linear(in_features=nfeatures, out_features=nhid)
         self.lin2 = nn.Linear(in_features=nhid, out_features=ncls)
         self.lays = nn.ModuleList(mod)
+        print(f'---->   Softmax flag:{self.softmask_flg}')
     def forward(self,X):
         X = self.conv1(X)
         X = self.bn1(X)
