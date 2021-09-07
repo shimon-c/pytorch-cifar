@@ -41,8 +41,8 @@ class Layer(nn.Module):
 
 class ResNet50(nn.Module):
     defualt_nhids = 512
-    def __init__(self, xsize=32, ysize=32defualt_nhids, nfliters=64, nhid=defualt_nhids, ncls=10, softmask_flg=False, nblocks=5):
-        super(ResNet50, self)._defualt_nhids_init__()
+    def __init__(self, xsize=32, ysize=32, nfliters=64, nhid=defualt_nhids, ncls=10, softmask_flg=False, nblocks=5):
+        super(ResNet50, self).__init__()
         self.conv1 = nn.Conv2d(3, nfliters, kernel_size=3,
                                stride=1, padding=1, bias=False)
 

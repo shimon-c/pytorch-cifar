@@ -194,7 +194,7 @@ resnet.relu6_flg = True if args.relu6 else False
 if args.sc_resnet:
     net = sc_resnet.ResNet50()
 else:
-    net = ResNet18()
+    net = ResNet18(nblocks=2)
 # net = PreActResNet18()
 # net = GoogLeNet()
 # net = DenseNet121()
